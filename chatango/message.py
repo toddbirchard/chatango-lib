@@ -1,12 +1,12 @@
-import re
-import time
 import enum
 import html
-from typing import Optional, Union, TYPE_CHECKING
+import re
+import time
+from typing import TYPE_CHECKING, Optional, Union
 
-from .utils import public_attributes
-from .user import User, UserManager
 from .resources import Styles
+from .user import User, UserManager
+from .utils import public_attributes
 
 if TYPE_CHECKING:
     from .pm import PM
@@ -46,6 +46,7 @@ Fonts = {
 
 class Message:
     def __init__(self, user, room):
+        """Initializes an empty message tied to a user and room."""
         self.user: User = user
         self.room: Union[Room, PM] = room
         self.time = 0.0
@@ -79,14 +80,17 @@ class Message:
         return html.unescape(text).replace("\r", "\n").strip()
 
     def __dir__(self):
+        """Limits dir() output to public attributes."""
         return public_attributes(self)
 
     def __repr__(self):
+        """Returns a readable message representation."""
         return f'<Message {self.room} {self.user} "{self.body}">'
 
 
 class PMMessage(Message):
     def __init__(self, user, room):
+        """Initializes PM-specific message fields."""
         super().__init__(user, room)
         self.id = None
         self.msgoff = False
@@ -95,6 +99,7 @@ class PMMessage(Message):
 
 class RoomMessage(Message):
     def __init__(self, user, room):
+        """Initializes room-specific message fields."""
         super().__init__(user, room)
         self.id = None
         self.short_cookie = str()
@@ -166,4 +171,5 @@ async def _process_pm(pm, args):
 
 
 def message_cut(message, lenth):
+    """Splits a message into chunks of the given length."""
     return [message[x : x + lenth] for x in range(0, len(message), lenth)]

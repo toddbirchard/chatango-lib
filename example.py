@@ -1,9 +1,10 @@
-#! /usr/bin/env python
-# -*- coding: utf-8 -*-
-import chatango
+"""Example script for using the Chatango library."""
+
 import asyncio
 import time
 import typing
+
+import chatango
 
 
 class Config:
@@ -15,12 +16,15 @@ class Config:
 
 class MyBot(chatango.Client):
     async def on_connect(self, room: typing.Union[chatango.Room, chatango.PM]):
+        """Prints when a room or PM connects."""
         print("[info] Connected to {}".format(repr(room)))
 
     async def on_disconnect(self, room):
+        """Prints when a room or PM disconnects."""
         print("[info] Disconnected from {}".format(repr(room)))
 
     async def on_message(self, room, message):
+        """Prints incoming messages with timestamp, room, and sender."""
         print(
             time.strftime("%b/%d-%H:%M:%S", time.localtime(message.time)),
             room.name,

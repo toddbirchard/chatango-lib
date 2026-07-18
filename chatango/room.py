@@ -1,25 +1,20 @@
 import asyncio
-import html
-import time
 import enum
-import re
+import html
 import logging
+import re
+import time
 import urllib.parse as urlreq
-
 from collections import deque, namedtuple
 from typing import Optional
 
-from .utils import (
-    get_server,
-    _id_gen,
-    public_attributes,
-)
-from .message import MessageFlags, RoomMessage, _process, message_cut
-from .user import RegisteredUser, User, ModeratorFlags, AdminFlags, UserManager, Session
-from .resources import RoomProfile, fetch_resources
+from .connection import WebsocketConnection
 from .exceptions import AlreadyConnectedError, InvalidRoomNameError
 from .handler import EventHandler
-from .connection import WebsocketConnection
+from .message import MessageFlags, RoomMessage, _process, message_cut
+from .resources import RoomProfile, fetch_resources
+from .user import AdminFlags, ModeratorFlags, RegisteredUser, Session, User, UserManager
+from .utils import _id_gen, get_server, public_attributes
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +49,11 @@ class Room(WebsocketConnection, EventHandler):
     _BANDATA = namedtuple("BanData", ["encoded_cookie", "ip", "target", "time", "src"])
 
     def __dir__(self):
+        """Limits dir() output to public attributes."""
         return public_attributes(self)
 
     def __init__(self, name: str):
+        """Initializes room state and resolves the server host."""
         WebsocketConnection.__init__(self)
         EventHandler.__init__(self)
         self.assert_valid_name(name)
@@ -88,10 +85,12 @@ class Room(WebsocketConnection, EventHandler):
         self._flags: Optional[RoomFlags] = None
 
     def __repr__(self):
+        """Returns a readable room identifier."""
         return f"<Room {self.name}>"
 
     @property
     def profile(self) -> RoomProfile:
+        """The room's group profile resource."""
         return self._profile
 
     async def load_profile(self):
@@ -109,10 +108,12 @@ class Room(WebsocketConnection, EventHandler):
 
     @property
     def is_pm(self):
+        """Always False for rooms."""
         return False
 
     @property
     def badge(self):
+        """Message flag value for the session's mod or staff badge."""
         badge_val = self.session.badge
 
         if not badge_val:
@@ -126,51 +127,62 @@ class Room(WebsocketConnection, EventHandler):
 
     @property
     def unbanlist(self):
-        """Lista de usuarios desbaneados"""
+        """List of unbanned users."""
         return list(set(x.target.name for x in self._unbanqueue))
 
     @property
     def messages(self):
+        """Mapping of message id to message."""
         return self._messages
 
     @property
     def history(self):
+        """Deque of messages in chronological order."""
         return self._history
 
     @property
     def silent(self):
+        """Whether outgoing messages are suppressed."""
         return self._silent
 
     @property
     def description(self):
+        """The room description HTML from the group profile."""
         return self.profile.group_body_html
 
     @property
     def title(self):
+        """The room title from the group profile."""
         return self.profile.group_title
 
     @property
     def banlist(self):
+        """Users currently banned from the room."""
         return list(self._banlist.keys())
 
     @property
     def flags(self):
+        """The room's RoomFlags configuration."""
         return self._flags
 
     @property
     def rate_limit(self):
+        """Seconds enforced between messages by the server."""
         return self._rate_limit
 
     @property
     def user(self):
+        """The user for the current session."""
         return self.session.user
 
     @property
     def mods(self):
+        """Set of the room's moderators."""
         return set(self._mods.keys())
 
     @property
     def userlist(self):
+        """Users currently in the room (requires participant mode)."""
         if self._anoncount is not None:
             return [s.user for s in self._userdict.values()]
         else:
@@ -180,6 +192,7 @@ class Room(WebsocketConnection, EventHandler):
 
     @property
     def usercount(self):
+        """Number of users in the room (requires participant mode)."""
         if self._usercount is not None:
             return self._usercount
         elif self._anoncount is not None:
@@ -193,6 +206,7 @@ class Room(WebsocketConnection, EventHandler):
 
     @classmethod
     def assert_valid_name(cls, room_name: str):
+        """Raises InvalidRoomNameError if the name is not a valid room name."""
         expr = re.compile("^([a-z0-9-]{1,20})$")
         if not expr.match(room_name):
             raise InvalidRoomNameError(room_name)
@@ -292,9 +306,11 @@ class Room(WebsocketConnection, EventHandler):
         return await self.send_command("blogin", user_name, password, **kwargs)
 
     async def _logout(self):
+        """Logs out of the current account, reverting to anon."""
         await self.send_command("blogout")
 
     async def send_message(self, message, *, use_html=False, flags=None, **kwargs):
+        """Sends a message to the room, applying styles and splitting long messages."""
         if not self.silent:
             message_flags = (
                 flags if flags else self.message_flags + self.badge or 0 + self.badge
@@ -311,6 +327,7 @@ class Room(WebsocketConnection, EventHandler):
     def set_font(
         self, name_color=None, font_color=None, font_size=None, font_face=None
     ):
+        """Updates the current user's style settings locally."""
         if name_color:
             self.user.styles.name_color = str(name_color)
         if font_color:
@@ -321,12 +338,15 @@ class Room(WebsocketConnection, EventHandler):
             self.user.styles.font_face = int(font_face)
 
     async def enable_bg(self):
+        """Enables message background."""
         await self.set_bg_mode(1)
 
     async def disable_bg(self):
+        """Disables message background."""
         await self.set_bg_mode(0)
 
     def get_level(self, user):
+        """Returns the user's permission level: 0 user, 1 mod, 2 admin, 3 owner."""
         if isinstance(user, str):
             user = UserManager.get_user(name=user)
         if user == self.owner:
@@ -334,17 +354,19 @@ class Room(WebsocketConnection, EventHandler):
         mod_user = self._mods.get(user)
         if not mod_user:
             return 0
-        elif mod_user.isadmin:
+        elif mod_user & AdminFlags:
             return 2
         else:
             return 1
 
     def ban_record(self, user):
+        """Returns the ban data for a user, if banned."""
         if isinstance(user, str):
             user = UserManager.get_user(name=user)
         return self._banlist.get(user)
 
     def get_last_message(self, user=None) -> Optional[RoomMessage]:
+        """Returns the most recent message, optionally filtered by user."""
         if not self._history:
             return None
         if not user:
@@ -357,9 +379,11 @@ class Room(WebsocketConnection, EventHandler):
         return None
 
     async def _raw_unban(self, name, ip, encoded_cookie):
+        """Sends the removeblock command with raw ban data."""
         await self.send_command("removeblock", encoded_cookie, ip, name)
 
     def _add_history(self, msg):
+        """Appends a message to history, evicting the oldest when full."""
         if len(self._history) == self.history.maxlen:
             rest = self._history.popleft()
             self._messages.pop(rest.id)
@@ -368,17 +392,20 @@ class Room(WebsocketConnection, EventHandler):
 
     def _add_history_left(self, msg):
         # Add older history unless full
+        """Prepends an older message to history unless full."""
         if self.history.maxlen and len(self._history) < self.history.maxlen:
             self._history.appendleft(msg)
             self._messages[msg.id] = msg
 
     def _remove_history(self, msgid):
+        """Removes and returns a message from history by id."""
         msg = self._messages.pop(msgid, None)
         if msg and msg in self._history:
             self._history.remove(msg)
         return msg
 
     async def unban_user(self, user):
+        """Unbans a user using their ban record."""
         rec = self.ban_record(user)
         print("rec", rec)
         if rec:
@@ -388,6 +415,7 @@ class Room(WebsocketConnection, EventHandler):
             return False
 
     async def ban_message(self, msg: RoomMessage) -> bool:
+        """Bans the author of the given message (requires mod level)."""
         if self.get_level(self.user) > 0:
             name = "" if msg.user.isanon else msg.user.name
             await self._raw_ban(msg.encoded_cookie, msg.ip, name)
@@ -406,9 +434,9 @@ class Room(WebsocketConnection, EventHandler):
 
     async def ban_user(self, user: str) -> bool:
         """
-        Banear un usuario (si se tiene el privilegio)
-        @param user: El usuario, str o User
-        @return: Bool indicando si se envió el comando
+        Ban a user (requires the privilege to do so)
+        @param user: The user, str or User
+        @return: Bool indicating whether the command was sent
         """
         msg = self.get_last_message(user)
         if msg and msg.user not in self.banlist:
@@ -416,7 +444,7 @@ class Room(WebsocketConnection, EventHandler):
         return False
 
     async def clear_all(self):
-        """Borra todos los mensajes"""
+        """Deletes all messages."""
         if (
             self.user in self._mods
             and ModeratorFlags.EDIT_GROUP in self._mods[self.user]
@@ -429,6 +457,7 @@ class Room(WebsocketConnection, EventHandler):
 
     async def clear_user(self, user):
         # TODO
+        """Deletes all messages from a user's last-known session (requires mod level)."""
         if self.get_level(self.user) > 0:
             msg = self.get_last_message(user)
             if msg:
@@ -438,12 +467,14 @@ class Room(WebsocketConnection, EventHandler):
         return False
 
     async def delete_message(self, message):
+        """Deletes a single message (requires mod level)."""
         if self.get_level(self.user) > 0 and message.id:
             await self.send_command("delmsg", message.id)
             return True
         return False
 
     async def delete_user(self, user):
+        """Deletes the last message from the given user (requires mod level)."""
         if self.get_level(self.user) > 0:
             msg = self.get_last_message(user)
             if msg:
@@ -451,6 +482,7 @@ class Room(WebsocketConnection, EventHandler):
         return False
 
     async def request_unbanlist(self):
+        """Requests the unban history from the server."""
         await self.send_command(
             "blocklist",
             "unblock",
@@ -462,6 +494,7 @@ class Room(WebsocketConnection, EventHandler):
         )
 
     async def request_banlist(self):  # TODO revisar
+        """Requests the ban list from the server."""
         await self.send_command(
             "blocklist",
             "block",
@@ -474,11 +507,11 @@ class Room(WebsocketConnection, EventHandler):
 
     async def set_banned_words(self, part="", whole=""):
         """
-        Actualiza las palabras baneadas en el servidor
-        @param part: Las partes de palabras que serán baneadas (separadas por
-        coma, 4 carácteres o más)
-        @param whole: Las palabras completas que serán baneadas, (separadas
-        por coma, cualquier tamaño)
+        Updates the banned words on the server
+        @param part: The word fragments to be banned (comma-separated,
+        4 characters or more)
+        @param whole: The whole words to be banned (comma-separated,
+        any length)
         """
         if self.user in self._mods and ModeratorFlags.EDIT_BW in self._mods[self.user]:
             await self.send_command(
@@ -515,6 +548,7 @@ class Room(WebsocketConnection, EventHandler):
         return await self.send_command("getannouncement", expect="getannc", timeout=5.0)
 
     async def set_bg_mode(self, mode):
+        """Sets background mode, enabling it on the server when premium."""
         self._bgmode = mode
         if self.connected:
             await self.send_command("getpremium", "l")
@@ -522,6 +556,7 @@ class Room(WebsocketConnection, EventHandler):
                 await self.send_command("msgbg", str(self._bgmode))
 
     async def _style_init(self, user):
+        """Loads user styles, or defaults for anons."""
         if not user.isanon:
             await user.load_resources()
         else:
@@ -530,6 +565,7 @@ class Room(WebsocketConnection, EventHandler):
             )
 
     def _process_premium_state(self, args):
+        """Updates premium status from a premium response and applies background."""
         code = args[0]
         is_prem = code in ["200", "210"] or (self.owner == self.user)
         self.user.ispremium = is_prem
@@ -607,13 +643,16 @@ class Room(WebsocketConnection, EventHandler):
         await self.load_profile()
 
     async def _rcmd_inited(self, args):
+        """Signals that initial room data has been fully received."""
         self.call_event("inited")
 
     async def _rcmd_pwdok(self, args):
+        """Handles successful password login by refreshing premium and styles."""
         await self.send_command("getpremium", "l")
         await self._style_init(self.user)
 
     async def _rcmd_annc(self, args):
+        """Processes an announcement broadcast."""
         self._process_announcement_state(args, from_get=False)
 
     async def _rcmd_nomore(self, args):  # TODO
@@ -621,6 +660,7 @@ class Room(WebsocketConnection, EventHandler):
         pass
 
     async def _rcmd_n(self, args):
+        """Updates the user count."""
         self._usercount = int(args[0], 16)
 
     async def _rcmd_i(self, args):
@@ -629,6 +669,7 @@ class Room(WebsocketConnection, EventHandler):
         self._add_history_left(msg)
 
     async def _rcmd_b(self, args):
+        """Processes an incoming message body, pairing it with its id from 'u'."""
         msg = await _process(self, args)
         if args[5] in self._uqueue:
             msg.id = self._uqueue.pop(args[5])
@@ -638,9 +679,11 @@ class Room(WebsocketConnection, EventHandler):
             self._mqueue[msg.id] = msg
 
     async def _rcmd_premium(self, args):
+        """Processes the premium status response."""
         self._process_premium_state(args)
 
     async def _rcmd_u(self, args):
+        """Pairs a message id with its body received via 'b'."""
         if args[0] in self._mqueue:
             msg = self._mqueue.pop(args[0])
             msg.id = args[1]
@@ -752,6 +795,7 @@ class Room(WebsocketConnection, EventHandler):
                 self.call_event("logout", user)
 
     async def _rcmd_mods(self, args):
+        """Rebuilds the moderator list and emits add/remove events."""
         pre = self._mods
         mods = self._mods = dict()
 
@@ -767,7 +811,6 @@ class Room(WebsocketConnection, EventHandler):
                 name, powers = mod_record.split(",", 1)
                 utmp = UserManager.get_user(name=name)
                 self._mods[utmp] = ModeratorFlags(int(powers))
-                self._mods[utmp].isadmin = ModeratorFlags(int(powers)) & AdminFlags != 0
 
         for user in self.mods - set(pre.keys()):
             self.call_event("mod_added", user)
@@ -775,11 +818,13 @@ class Room(WebsocketConnection, EventHandler):
             self.call_event("mod_remove", user)
 
     async def _rcmd_groupflagsupdate(self, args):
+        """Updates room flags from the server."""
         flags = args[0]
         self._flags = RoomFlags(int(flags))
         self.call_event("groupflagsupdate")
 
     async def _rcmd_blocked(self, args):
+        """Records a new ban and emits the blocked event."""
         encoded_cookie = args[0]
         ip = args[1]
         name = args[2]
@@ -798,6 +843,7 @@ class Room(WebsocketConnection, EventHandler):
         self.call_event("blocked", target, moderator)
 
     async def _rcmd_blocklist(self, args):
+        """Rebuilds the ban list from the server payload."""
         self._banlist = dict()
         sections = ":".join(args).split(";")
         for section in sections:
@@ -897,39 +943,47 @@ class Room(WebsocketConnection, EventHandler):
         self.call_event("unblocklist")
 
     async def _rcmd_clearall(self, args):
+        """Signals that all messages were cleared."""
         self.call_event("clearall", args[0])
 
     async def _rcmd_denied(self, args):
+        """Handles denied access by disconnecting."""
         self.call_event("denied")
         await self.disconnect()
 
     async def _rcmd_updatemoderr(self, args):
+        """Signals an error updating a moderator."""
         self.call_event("updatemoderr", UserManager.get_user(name=args[1]), args[0])
 
     async def _rcmd_proxybanned(self, args):
+        """Signals that the connection was refused for using a proxy."""
         self.call_event("proxybanned")
 
     async def _rcmd_show_fw(self, args):
+        """Signals a flood warning."""
         self.call_event("show_fw")
 
     async def _rcmd_show_tb(self, args):
+        """Signals a temporary ban with its duration."""
         self.call_event("show_tb", int(args[0]))
 
     async def _rcmd_tb(self, args):
-        """Temporary ban sigue activo con el tiempo indicado"""
+        """Temporary ban is still active for the indicated time."""
         self.call_event("temp_ban", int(args[0]))
 
     async def _rcmd_updgroupinfo(self, args):
+        """Reloads the group profile after a server update."""
         await self.load_profile()
         self.call_event("updgroupinfo")
 
     async def _rcmd_miu(self, args):
+        """Reloads a user's resources after a background or style update."""
         user = UserManager.get_user(name=args[0])
         await user.load_resources()
         self.call_event("miu", user)
 
     async def _rcmd_delete(self, args):
-        """Borrar un mensaje de mi vista actual"""
+        """Removes a deleted message from the current view."""
         msg = self._remove_history(args[0])
         if msg:
             self.call_event("delete", msg)
@@ -938,7 +992,7 @@ class Room(WebsocketConnection, EventHandler):
             await self.send_command("get_more", "20", "0")
 
     async def _rcmd_deleteall(self, args):
-        """Mensajes han sido borrados"""
+        """Messages have been deleted."""
         msgs_nones = [self._remove_history(msgid) for msgid in args]
         msgs = [msg for msg in msgs_nones if msg]
         if msgs:
@@ -946,6 +1000,7 @@ class Room(WebsocketConnection, EventHandler):
 
     # Receive banned word lists from server
     async def _rcmd_bw(self, args):
+        """Stores the banned word lists received from the server."""
         part, whole = "", ""
         if args:
             part = urlreq.unquote(args[0])
@@ -955,37 +1010,47 @@ class Room(WebsocketConnection, EventHandler):
         self.call_event("bw")
 
     async def _rcmd_getannc(self, args):
+        """Processes the getannouncement response."""
         self._process_announcement_state(args, from_get=True)
 
     async def _rcmd_getratelimit(self, args):
+        """Stores the current rate limit."""
         self._rate_limit = int(args[0])
         self.call_event("ratelimitset")
 
     async def _rcmd_ratelimitset(self, args):
+        """Stores an updated rate limit."""
         self._rate_limit = int(args[0])
         self.call_event("ratelimitset")
 
     async def _rcmd_ratelimited(self, args):
+        """Signals a message was dropped due to rate limiting."""
         wait_time = int(args[0])
         self.call_event("ratelimited", wait_time)
 
     async def _rcmd_msglexceeded(self, args):
+        """Signals that a message exceeded the maximum length."""
         self.call_event("msglexceeded")
 
     # Server updated banned words
     async def _rcmd_ubw(self, args):
+        """Refetches banned words after a server update."""
         await self.send_command("getbannedwords")
 
     async def _rcmd_climited(self, args):
+        """Signals a command was dropped due to flooding."""
         self.call_event("climited")
 
     async def _rcmd_show_nlp(self, args):
+        """Signals a spam-detection warning."""
         self.call_event("show_nlp")
 
     async def _rcmd_nlptb(self, args):
+        """Signals a spam-detection ban."""
         self.call_event("nlptb")
 
     async def _rcmd_logoutfirst(self, args):
+        """Signals that logout is required before logging in."""
         self.call_event("logoutfirst")
 
     async def _rcmd_logoutok(self, args):
@@ -1005,6 +1070,7 @@ class Room(WebsocketConnection, EventHandler):
         self.call_event("logoutok", new_user)
 
     async def _rcmd_updateprofile(self, args):
+        """Reloads a user's resources after a profile update."""
         user = UserManager.get_user(name=args[0])
         await user.load_resources()
         self.call_event("updateprofile", user)
@@ -1012,76 +1078,101 @@ class Room(WebsocketConnection, EventHandler):
     # --- Documented Protocol Stubs ---
 
     async def _rcmd_groupflagstoggled(self, args):
+        """Signals that group flags were toggled."""
         self.call_event("groupflagstoggled")
 
     async def _rcmd_cbw(self, args):
+        """Emits the cbw event."""
         self.call_event("cbw")
 
     async def _rcmd_end_fw(self, args):
+        """Signals the end of a flood warning."""
         self.call_event("end_fw")
 
     async def _rcmd_show_nlp_tb(self, args):
+        """Signals a spam-detection temporary ban."""
         self.call_event("show_nlp_tb")
 
     async def _rcmd_end_nlp(self, args):
+        """Signals the end of a spam-detection restriction."""
         self.call_event("end_nlp")
 
     async def _rcmd_notifysettings(self, args):
+        """Emits the notifysettings event."""
         self.call_event("notifysettings")
 
     async def _rcmd_setnotifysettings(self, args):
+        """Emits the setnotifysettings event."""
         self.call_event("setnotifysettings")
 
     async def _rcmd_checkemail_notify(self, args):
+        """Emits the checkemail_notify event."""
         self.call_event("checkemail_notify")
 
     async def _rcmd_addmoderr(self, args):
+        """Signals an error adding a moderator."""
         self.call_event("addmoderr")
 
     async def _rcmd_removemoderr(self, args):
+        """Signals an error removing a moderator."""
         self.call_event("removemoderr")
 
     async def _rcmd_modactions(self, args):
+        """Emits the modactions log event."""
         self.call_event("modactions")
 
     async def _rcmd_gotmore(self, args):
+        """Signals a batch of older messages has been delivered."""
         self.call_event("gotmore")
 
     async def _rcmd_mustlogin(self, args):
+        """Signals that the action requires being logged in."""
         self.call_event("mustlogin")
 
     async def _rcmd_v(self, args):
+        """Emits the protocol version event."""
         self.call_event("v", args)
 
     async def _rcmd_badlogin(self, args):
+        """Signals invalid login credentials."""
         self.call_event("badlogin")
 
     async def _rcmd_badalias(self, args):
+        """Signals an invalid or taken temporary name."""
         self.call_event("badalias")
 
     async def _rcmd_aliasok(self, args):
+        """Signals the temporary name was accepted."""
         self.call_event("aliasok")
 
     async def _rcmd_chatango(self, args):
+        """Emits the chatango event."""
         self.call_event("chatango")
 
     async def _rcmd_limitexceeded(self, args):
+        """Signals a server limit was exceeded."""
         self.call_event("limitexceeded")
 
     async def _rcmd_verificationrequired(self, args):
+        """Signals the account requires verification."""
         self.call_event("verificationrequired")
 
     async def _rcmd_verificationchanged(self, args):
+        """Signals the account verification status changed."""
         self.call_event("verificationchanged")
 
     async def _rcmd_versioningPU(self, args):
+        """Emits the versioningPU event."""
         self.call_event("versioningPU")
 
     async def _rcmd_badbansearchstring(self, args):
+        """Signals an invalid ban search query."""
         self.call_event("badbansearchstring")
 
     async def _rcmd_bansearchresult(self, args):
+        """Emits a ban search result."""
         self.call_event("bansearchresult")
 
     async def _rcmd_allunblocked(self, args):
+        """Signals that all users were unbanned."""
         self.call_event("allunblocked")
