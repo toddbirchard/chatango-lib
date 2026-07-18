@@ -1,12 +1,13 @@
-import random
-import mimetypes
 import html
-import re
-import string
-import aiohttp
-import ssl
 import logging
+import mimetypes
+import random
+import re
+import ssl
+import string
 from typing import Optional, Tuple
+
+import aiohttp
 
 from .hasher import Hasher
 
@@ -124,16 +125,19 @@ def get_server(group):
 
 
 def public_attributes(obj):
+    """Returns non-underscore attribute names for an object."""
     return [
         x for x in set(list(obj.__dict__.keys()) + list(dir(type(obj)))) if x[0] != "_"
     ]
 
 
 async def on_request_exception(session, context, params):
+    """Debug-logs aiohttp request exceptions."""
     logging.getLogger("aiohttp.client").debug(f"on request exception: <{params}>")
 
 
 def trace():
+    """Builds an aiohttp TraceConfig that logs request exceptions."""
     trace_config = aiohttp.TraceConfig()
     trace_config.on_request_exception.append(on_request_exception)
     return trace_config
@@ -143,6 +147,7 @@ _aiohttp_session = None
 
 
 def get_aiohttp_session():
+    """Returns the shared aiohttp session, creating it with legacy TLS support."""
     global _aiohttp_session
     if _aiohttp_session is None:
         # Chatango uses legacy TLS configurations on some server ports (e.g. PM 8081)
@@ -170,6 +175,7 @@ def get_aiohttp_session():
 
 
 async def get_token(user_name, passwd):
+    """Logs in over HTTP and returns the auth token cookie, if successful."""
     chatango, token = ["http://chatango.com/login", "auth.chatango.com"], None
     payload = {
         "user_id": str(user_name).lower(),
@@ -186,9 +192,11 @@ async def get_token(user_name, passwd):
 
 
 def multipart(data, files, boundary=None):
+    """Builds a multipart/form-data body and headers from fields and files."""
     lineas = []
 
     def escape_quote(s):
+        """Escapes double quotes for header values."""
         return s.replace('"', '\\"')
 
     if boundary == None:
@@ -272,17 +280,18 @@ def gen_uid() -> str:
 
 
 def _id_gen():
+    """Generates a random 4-letter lowercase message id."""
     return "".join(random.choice(string.ascii_uppercase) for i in range(4)).lower()
 
 
 def _fontFormat(text):
     # TODO check
     """Converts */_ into whattsap like formats"""
-    formats = {"/": "I", "\*": "B", "_": "U"}
+    formats = {"/": "I", r"\*": "B", "_": "U"}
     for f in formats:
         f1, f2 = set(formats.keys()) - {f}
         # find = ' <?[BUI]?>?[{0}{1}]?{2}(.+?[\S]){2}'.format(f1, f2, f+'{1}')
-        find = " <?[BUI]?>?[{0}{1}]?{2}(.+?[\S]?[{2}]?){2}[{0}{1}]?[\s]".format(
+        find = r" <?[BUI]?>?[{0}{1}]?{2}(.+?[\S]?[{2}]?){2}[{0}{1}]?[\s]".format(
             f1, f2, f
         )
         for x in re.findall(find, " " + text + " "):
@@ -294,10 +303,10 @@ def _fontFormat(text):
 
 def _parseFont(f: str, pm=False) -> Tuple[str, str, str]:
     """
-    Lee el contendido de un etiqueta f y regresa
-    tamaño color y fuente (en ese orden)
-    @param f: El texto con la etiqueta f incrustada
-    @return: Tamaño, Color, Fuente
+    Reads the content of an f tag and returns
+    size, color, and font (in that order)
+    @param f: The text with the f tag embedded
+    @return: Size, Color, Font
     """
     if pm:
         regex = r'x(\d{1,2})?s([a-fA-F0-9]{6}|[a-fA-F0-9]{3})="|\'(.*?)"|\''
@@ -312,14 +321,14 @@ def _parseFont(f: str, pm=False) -> Tuple[str, str, str]:
 
 def _videoImagePMFormat(text):
     """Returns text with formatted video and image for PM sending"""
-    for x in re.findall("(http[s]?://[^\s]+outube.com/watch\?v=([^\s]+))", text):
+    for x in re.findall(r"(http[s]?://[^\s]+outube.com/watch\?v=([^\s]+))", text):
         original = x[0]
         cambio = '<i s="vid://yt:%s" w="126" h="96"/>' % x[1]
         text = text.replace(original, cambio)
-    for x in re.findall("(http[s]?://[\S]+outu.be/([^\s]+))", text):
+    for x in re.findall(r"(http[s]?://[\S]+outu.be/([^\s]+))", text):
         original = x[0]
         cambio = '<i s="vid://yt:%s" w="126" h="96"/>' % x[1]
         text = text.replace(original, cambio)
-    for x in re.findall("http[s]?://[\S]+?.jpg", text):
+    for x in re.findall(r"http[s]?://[\S]+?.jpg", text):
         text = text.replace(x, '<i s="%s" w="70.45" h="125"/>' % x)
     return text

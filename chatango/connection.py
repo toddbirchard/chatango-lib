@@ -1,8 +1,10 @@
 import asyncio
-import aiohttp
 import logging
 import socket
 from typing import Optional
+
+import aiohttp
+
 from .handler import CommandHandler
 from .utils import get_aiohttp_session
 
@@ -11,10 +13,12 @@ logger = logging.getLogger(__name__)
 
 class WebsocketConnection(CommandHandler):
     def __init__(self):
+        """Initializes the command handler and resets connection state."""
         super().__init__()
         self._reset()
 
     def _reset(self):
+        """Clears connection state and background task references."""
         self._connected = False
         self._connection: Optional[aiohttp.ClientWebSocketResponse] = None
         self._recv_task: Optional[asyncio.Task] = None
@@ -22,6 +26,7 @@ class WebsocketConnection(CommandHandler):
 
     @property
     def connected(self):
+        """Whether the websocket is currently connected and open."""
         return (
             self._connected
             and self._connection is not None
@@ -29,6 +34,7 @@ class WebsocketConnection(CommandHandler):
         )
 
     async def _connect(self, url: str):
+        """Opens the websocket connection and starts the receive and ping tasks."""
         try:
             self._connection = await get_aiohttp_session().ws_connect(
                 url, origin="http://st.chatango.com"
@@ -123,6 +129,7 @@ class WebsocketConnection(CommandHandler):
             return
 
     async def _disconnect(self):
+        """Cancels background tasks and closes the websocket connection."""
         self._connected = False
         if self._ping_task:
             self._ping_task.cancel()
@@ -147,6 +154,7 @@ class WebsocketConnection(CommandHandler):
         logger.info("WebSocket disconnected")
 
     async def _send_command(self, command: str, terminator: str = "\r\n\0"):
+        """Sends a raw command string over the websocket."""
         if not self.connected:
             logger.error(f'Message send failed "{command}": Not connected')
             return

@@ -1,88 +1,64 @@
-import sys
 import asyncio
 import logging
+import sys
 import traceback
 from collections.abc import Iterable
 from typing import Coroutine, Optional
 
 logger = logging.getLogger(__name__)
 
-"""
-Base class with helpers for asyncio task management. This allows chat rooms
-and other objects to offer some simple task infrastructure so users don't
-have to track and await them manually.  Tasks with errors will be logged for
-visibility during development.  You can await complete_tasks which returns
-when all tasks are finished, or tasks_forever which never returns.
-"""
-
 
 class TaskHandler:
     """
-    All tasks stored and tracked
+    Base class with helpers for asyncio task management. This allows chat rooms
+    and other objects to offer some simple task infrastructure so users don't
+    have to track and await them manually.  Tasks with errors will be logged for
+    visibility during development.  You can await complete_tasks which returns
+    when all tasks are finished, or tasks_forever which never returns.
     """
 
     @property
     def tasks(self):
+        """All tasks stored and tracked."""
         assert self.task_loop
         if not hasattr(self, "_tasks"):
             self._tasks = []
         return self._tasks
 
-    """
-    Main task loop which is started automatically and never ends
-    """
-
     @property
     def task_loop(self):
+        """Main task loop which is started automatically and never ends."""
         if not hasattr(self, "_task_loop") or not self._task_loop:
             self._task_loop = asyncio.create_task(self.tasks_forever())
         return self._task_loop
 
-    """
-    Add and run a new task
-    """
-
     def add_task(self, coro: Coroutine):
+        """Add and run a new task."""
         task = asyncio.create_task(coro)
         self.tasks.append(task)
         return task
 
-    """
-    Convenience wrapper for sleep before a task
-    """
-
     async def _delayed_task(self, delay_time, coro: Coroutine):
+        """Convenience wrapper for sleep before a task."""
         await asyncio.sleep(delay_time)
         await coro
 
-    """
-    Add a task that will start after some time
-    """
-
     def add_delayed_task(self, delay_time, coro: Coroutine):
+        """Add a task that will start after some time."""
         self.add_task(self._delayed_task(delay_time, coro))
 
-    """
-    Cancel all remaining tasks
-    """
-
     def cancel_tasks(self):
+        """Cancel all remaining tasks."""
         for task in self.tasks:
             task.cancel()
 
-    """
-    Cancel all tasks including the task loop
-    """
-
     def end_tasks(self):
+        """Cancel all tasks including the task loop."""
         self.cancel_tasks()
         self.task_loop.cancel()
 
-    """
-    Remove all done tasks, and log any exceptions if present
-    """
-
     def _prune_tasks(self):
+        """Remove all done tasks, and log any exceptions if present."""
         for task in self.tasks:
             if task.done():
                 if task.exception():
@@ -91,83 +67,62 @@ class TaskHandler:
                     asyncio.create_task(self.on_task_exception(task))
                 self.tasks.remove(task)
 
-    """
-    Default behavior when a task results in an exception
-    """
-
     def _on_task_exception(self, task: asyncio.Task):
+        """Default behavior when a task results in an exception."""
         logger.error(f"Exception in task: {repr(task.get_coro())}")
         task.print_stack(file=sys.stderr)
 
-    """
-    Callback for custom behavior on task errors
-    """
-
     async def on_task_exception(self, task: asyncio.Task):
+        """Callback for custom behavior on task errors."""
         pass
 
-    """
-    Infinite loop to keep task maintenance for the life of object
-    """
-
     async def tasks_forever(self):
+        """Infinite loop to keep task maintenance for the life of object."""
         while True:
             self._prune_tasks()
             await asyncio.sleep(1)
 
-    """
-    Loop to watch tasks and exit when all are completed
-    """
-
     async def complete_tasks(self):
+        """Loop to watch tasks and exit when all are completed."""
         while self.tasks:
             self._prune_tasks()
             await asyncio.gather(*self.tasks)
             await asyncio.sleep(0.1)
 
 
-"""
-Base class which allows generating events for itself and other listeners.
-In general this allows a chat room to generate events, and customs bots
-can implement "on_event" style callbacks to add custom behaviors, either
-through a subclass or by a listener class.  For listeners, this object is
-passed as the first parameter to the callback.
-
- Event:
-   room.call_event("message", msg_obj)
- Callbacks:
-   room.on_message(msg_obj)
-   room.on_event("message", msg_obj)
-   listener.on_message(room, msg_obj)
-   listener.on_event(room, "message", msg_obj)
-
-"""
-
-
 class EventHandler(TaskHandler):
     """
-    All objects listening here for events
+    Base class which allows generating events for itself and other listeners.
+    In general this allows a chat room to generate events, and customs bots
+    can implement "on_event" style callbacks to add custom behaviors, either
+    through a subclass or by a listener class.  For listeners, this object is
+    passed as the first parameter to the callback.
+
+     Event:
+       room.call_event("message", msg_obj)
+     Callbacks:
+       room.on_message(msg_obj)
+       room.on_event("message", msg_obj)
+       listener.on_message(room, msg_obj)
+       listener.on_event(room, "message", msg_obj)
     """
 
     @property
     def listeners(self):
+        """All objects listening here for events."""
         if not hasattr(self, "_listeners"):
             self._listeners = set()
         return self._listeners
 
-    """
-    Add a listener for our events
-    """
-
     def add_listener(self, listener):
+        """Add a listener for our events."""
         self.listeners.add(listener)
 
-    """
-    Trigger an event, which looks for callback methods on this object,
-    and any listening objects.
-    """
-
     def call_event(self, event: str, *args, **kwargs):
+        """
+        Trigger an event, which looks for callback methods on this object,
+        and any listening objects.
+        """
         attr = f"on_{event}"
         self._log_event(event, *args, **kwargs)
         # Call a generic event handler for all events
@@ -190,11 +145,8 @@ class EventHandler(TaskHandler):
                 if hasattr(listener, attr):
                     target.add_task(getattr(listener, attr)(self, *args, **kwargs))
 
-    """
-    Debug log all events
-    """
-
     def _log_event(self, event: str, *args, **kwargs):
+        """Debug log all events."""
         if len(args) == 0:
             args_section = ""
         elif len(args) == 1:
@@ -205,40 +157,34 @@ class EventHandler(TaskHandler):
         logger.debug(f"EVENT {event} {args_section} {kwargs_section}")
 
 
-"""
-Base class for any socket connection to Chatango. Concrete classes must
-provide implementation for _send_command which sends the command out on
-the network.
-
-The method _receive_command parses the command format, and will automatically
-call a method handler named _rcmd_{action}.  It also supports Request-Response
-multiplexing via the expect_command method.
-
- Command:
-   premium:0:12345678
-
- Method:
-   _rcmd_premium
- args:
-   ["0", "12345678"]
-
-"""
-
-
 class CommandHandler:
     """
-    Registry for mapping expected message IDs/types to asyncio.Futures
+    Base class for any socket connection to Chatango. Concrete classes must
+    provide implementation for _send_command which sends the command out on
+    the network.
+
+    The method _receive_command parses the command format, and will automatically
+    call a method handler named _rcmd_{action}.  It also supports Request-Response
+    multiplexing via the expect_command method.
+
+     Command:
+       premium:0:12345678
+
+     Method:
+       _rcmd_premium
+     args:
+       ["0", "12345678"]
     """
 
     def __init__(self):
+        """Initializes the registry mapping expected commands to asyncio.Futures."""
         self._pending_waiters = {}
 
-    """
-    Returns an awaitable that resolves when the server sends a command
-    matching 'action'.
-    """
-
     def expect_command(self, action: str, timeout: float = 10.0):
+        """
+        Returns an awaitable that resolves when the server sends a command
+        matching 'action'.
+        """
         loop = asyncio.get_running_loop()
         fut = loop.create_future()
         if action not in self._pending_waiters:
@@ -246,13 +192,10 @@ class CommandHandler:
         self._pending_waiters[action].append(fut)
         return self._expect_command_internal(action, fut, timeout)
 
-    """
-    Internal awaitable for expect_command
-    """
-
     async def _expect_command_internal(
         self, action: str, fut: asyncio.Future, timeout: float
     ):
+        """Internal awaitable for expect_command."""
         try:
             return await asyncio.wait_for(fut, timeout=timeout)
         finally:
@@ -263,22 +206,20 @@ class CommandHandler:
                 if not self._pending_waiters[action]:
                     del self._pending_waiters[action]
 
-    """
-    Internal method to send a command using the protocol of the
-    subclass (websocket, tcp, etc.)
-    """
-
     async def _send_command(self, *args, **kwargs) -> None:
+        """
+        Internal method to send a command using the protocol of the
+        subclass (websocket, tcp, etc.)
+        """
         raise TypeError("CommandHandler child class must implement _send_command")
-
-    """
-    Public send method. If 'expect' is provided, it returns the server's
-    response for that matching command.
-    """
 
     async def send_command(
         self, *args, expect: Optional[str] = None, timeout: float = 10.0, **kwargs
     ):
+        """
+        Public send method. If 'expect' is provided, it returns the server's
+        response for that matching command.
+        """
         waiter = None
         if expect:
             waiter = self.expect_command(expect, timeout)
@@ -290,13 +231,12 @@ class CommandHandler:
         if waiter:
             return await waiter
 
-    """
-    Receive an incoming command and dynamically call a handler.
-    First checks for sequential waiters before calling the dynamic
-    method handler.
-    """
-
     async def _receive_command(self, command: str):
+        """
+        Receive an incoming command and dynamically call a handler.
+        First checks for sequential waiters before calling the dynamic
+        method handler.
+        """
         if not command:
             return
         logger.debug(f" IN {command}")
@@ -320,11 +260,8 @@ class CommandHandler:
         else:
             logger.error(f"Unhandled received command {action}")
 
-    """
-    Release any workflows waiting for a response if the connection drops.
-    """
-
     def _cancel_all_pending_futures(self, reason: Optional[Exception] = None):
+        """Release any workflows waiting for a response if the connection drops."""
         exc = reason or ConnectionError("Connection closed unexpectedly.")
         for action in list(self._pending_waiters.keys()):
             waiters = self._pending_waiters.pop(action)

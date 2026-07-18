@@ -1,15 +1,16 @@
-import time
-import re
-import json
-import datetime
-import xml.etree.ElementTree as ET
-import urllib.parse
 import asyncio
+import datetime
+import json
 import logging
+import re
 import socket
-import aiohttp
+import time
+import urllib.parse
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, Type, TypeVar, List, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Type, TypeVar, runtime_checkable
+
+import aiohttp
 
 from .utils import get_aiohttp_session
 
@@ -22,8 +23,7 @@ class Fetchable(Protocol):
     """Protocol for resources that can be fetched via a class method."""
 
     @classmethod
-    async def fetch(cls: Type[T], handle: str) -> T:
-        ...
+    async def fetch(cls: Type[T], handle: str) -> T: ...
 
 
 async def _get_data(url: str) -> Optional[str]:
@@ -71,7 +71,9 @@ async def _post_data(url: str, data: Dict[str, str]) -> Optional[str]:
     return None
 
 
-async def fetch_resources(handle: str, resource_types: List[Type[Fetchable]]) -> List[Any]:
+async def fetch_resources(
+    handle: str, resource_types: List[Type[Fetchable]]
+) -> List[Any]:
     """Fetches multiple resources in parallel for a given handle."""
     if not handle:
         return []
@@ -170,12 +172,14 @@ class MessageBackground:
 
     @classmethod
     async def fetch(cls, handle: str) -> "MessageBackground":
+        """Fetches and parses msgbg.xml for the given handle."""
         url = PathProvider.get_resource_url(handle, "msgbg.xml")
         data = await _get_data(f"{url}?cb={time.time()}")
         return cls.from_xml(data) if data else cls()
 
     @classmethod
     async def save(cls, handle: str, password: str, obj: "MessageBackground") -> bool:
+        """Posts background properties to the /updatemsgbg API."""
         url = "https://chatango.com/updatemsgbg"
         data = obj.to_dict()
         data.update(
@@ -284,7 +288,11 @@ class Styles:
             has_style = True
 
         if self.text_color != "000000":
-            f_prefix += f"s{self.compress_hex(self.text_color)}" if is_pm else self.compress_hex(self.text_color)
+            f_prefix += (
+                f"s{self.compress_hex(self.text_color)}"
+                if is_pm
+                else self.compress_hex(self.text_color)
+            )
             has_style = True
 
         f_prefix += '="'
@@ -295,7 +303,9 @@ class Styles:
 
         return f_prefix if has_style else ""
 
-    def format_message(self, text: str, is_pm: bool = False, is_anon: bool = False) -> str:
+    def format_message(
+        self, text: str, is_pm: bool = False, is_anon: bool = False
+    ) -> str:
         """Wraps text in the appropriate tags based on current styles and user type."""
         if is_anon:
             return text
@@ -338,12 +348,14 @@ class Styles:
 
     @classmethod
     async def fetch(cls, handle: str) -> "Styles":
+        """Fetches and parses msgstyles.json for the given handle."""
         url = PathProvider.get_resource_url(handle, "msgstyles.json")
         data = await _get_data(f"{url}?cb={time.time()}")
         return cls.from_json(data) if data else cls()
 
     @classmethod
     async def save(cls, handle: str, password: str, obj: "Styles") -> bool:
+        """Posts style properties to the /updatemsgstyles API."""
         url = "https://chatango.com/updatemsgstyles"
         data = obj.to_dict()
         data.update(
@@ -357,10 +369,12 @@ class Styles:
 
     @property
     def font_color(self) -> str:
+        """Alias for text_color."""
         return self.text_color
 
     @font_color.setter
     def font_color(self, value: str):
+        """Sets text_color via the font_color alias."""
         self.text_color = value
 
 
@@ -381,6 +395,7 @@ class UserProfile:
 
     @property
     def age(self) -> str:
+        """Approximate age in years derived from the birthdate."""
         if not self.birthdate:
             return ""
         try:
@@ -456,16 +471,20 @@ class UserProfile:
 
             self.last_update = time.time()
         except Exception as e:
-            logger.debug(f"Failed to parse query string in update_from_query_string: {e}")
+            logger.debug(
+                f"Failed to parse query string in update_from_query_string: {e}"
+            )
 
     @classmethod
     async def fetch(cls, handle: str) -> "UserProfile":
+        """Fetches and parses mod1.xml for the given handle."""
         url = PathProvider.get_resource_url(handle, "mod1.xml")
         data = await _get_data(f"{url}?cb={time.time()}")
         return cls.from_mod1(data) if data else cls()
 
     @classmethod
     async def save(cls, handle: str, password: str, obj: "UserProfile") -> bool:
+        """Loads current profile fields, then posts updates to /updateprofile."""
         url = "https://chatango.com/updateprofile"
 
         # 1. First POST to fetch fields (as seen in JS load())
@@ -543,12 +562,14 @@ class RoomProfile:
 
     @classmethod
     async def fetch(cls, handle: str) -> "RoomProfile":
+        """Fetches and parses gprofile.xml for the given handle."""
         url = PathProvider.get_resource_url(handle, "gprofile.xml")
         data = await _get_data(f"{url}?cb={time.time()}")
         return cls.from_xml(data) if data else cls()
 
     @classmethod
     async def save(cls, handle: str, password: str, obj: "RoomProfile") -> bool:
+        """Posts room profile properties to the /updategroupprofile API."""
         url = "https://chatango.com/updategroupprofile"
         data = obj.to_dict(handle)
         data.update(

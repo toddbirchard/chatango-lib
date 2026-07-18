@@ -10,17 +10,18 @@ weights.
 
 import ctypes
 
-
 FFFFVAL = ctypes.c_int32(0xFFFFFFFF).value
 
 
 def left(a, b):
+    """Signed 32-bit left shift."""
     m = ctypes.c_int32(a)
     m.value <<= b
     return m.value
 
 
 def right(val, n):
+    """Logical right shift of a value masked to 32 bits."""
     max_shift = 31
     n = n % max_shift
 
@@ -34,36 +35,42 @@ def right(val, n):
 
 
 def xor(a, b):
+    """Bitwise XOR of two values as signed 32-bit integers."""
     a = ctypes.c_int32(a).value
     b = ctypes.c_int32(b).value
     return a ^ b
 
 
 def andd(a, b):
+    """Bitwise AND of two values as signed 32-bit integers."""
     a = ctypes.c_int32(a).value
     b = ctypes.c_int32(b).value
     return a & b
 
 
 def orr(a, b):
+    """Bitwise OR of two values as signed 32-bit integers."""
     a = ctypes.c_int32(a).value
     b = ctypes.c_int32(b).value
     return a | b
 
 
 def nott(val):
+    """Bitwise NOT of a value masked to 32 bits."""
     mask = (1 << 32) - 1
     return ~(val & mask)
 
 
 class Hasher:
     def __init__(self):
+        """Initializes the hash state and message buffer."""
         self.block_size = 64
         self.state = [1732584193, 4023233417, 2562383102, 271733878]
         self.message_array = [0] * self.block_size
         self.message_length = self.buffer_length = 0
 
     def compress(self, msg, i=None):
+        """Runs the md5-lite compression rounds over one 64-byte block."""
         if not i:
             i = 0
 
@@ -222,6 +229,7 @@ class Hasher:
         self.state[3] = self.state[3] + andd(d, FFFFVAL)
 
     def update(self, message, length=None):
+        """Feeds message data into the hash, compressing complete blocks."""
         if not length:
             length = len(message)
 
@@ -262,6 +270,7 @@ class Hasher:
         return self
 
     def finalize(self):
+        """Pads the message, compresses the final block, and returns digest bytes."""
         size = (
             self.block_size if self.buffer_length < 56 else 2 * self.block_size
         ) - self.buffer_length
@@ -289,5 +298,6 @@ class Hasher:
         return a
 
     def hash(self, input):
+        """Returns the hex digest of the given input."""
         message = self.update(input).finalize()
         return "".join(["{:02x}".format(num) for num in message])

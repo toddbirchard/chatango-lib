@@ -1,17 +1,17 @@
 import enum
 import time
 import weakref
-from typing import Any, Optional, Type, Union, TYPE_CHECKING
 from collections import deque
+from typing import TYPE_CHECKING, Any, Optional, Type, Union
 
-from .utils import public_attributes
 from .resources import (
-    fetch_resources,
+    MessageBackground,
     PathProvider,
     Styles,
     UserProfile,
-    MessageBackground,
+    fetch_resources,
 )
+from .utils import public_attributes
 
 if TYPE_CHECKING:
     from .pm import PM
@@ -72,6 +72,7 @@ class User:
     """Base class for all Chatango users."""
 
     def __init__(self, **kwargs):
+        """Initializes shared user state and session tracking."""
         self._flags = 0
         self._history = deque(maxlen=5)
         self._sessions = weakref.WeakSet()
@@ -80,9 +81,11 @@ class User:
         self._showname = kwargs.get("showname")
 
     def __dir__(self):
+        """Limits dir() output to public attributes."""
         return public_attributes(self)
 
     def __repr__(self):
+        """Returns a readable user identifier."""
         return "<{} name:{} sid:{} aid:{}>".format(
             self.__class__.__name__, self.showname, self.sid, self.aid
         )
@@ -104,6 +107,7 @@ class User:
 
     @property
     def about(self):
+        """The profile body HTML."""
         return self.profile.body_html
 
     async def load_resources(self):
@@ -136,14 +140,17 @@ class User:
 
     @property
     def fullpic(self) -> str:
+        """URL of the full profile picture (empty for base users)."""
         return ""
 
     @property
     def msgbg(self) -> str:
+        """URL of the message background image (empty for base users)."""
         return ""
 
     @property
     def thumb(self) -> str:
+        """URL of the profile thumbnail (empty for base users)."""
         return ""
 
     @property
@@ -153,22 +160,27 @@ class User:
 
     @property
     def showname(self) -> str:
+        """Display name preserving original capitalization."""
         return self._showname or self.name
 
     @property
     def sid(self):
+        """Session identifier (None for base users)."""
         return None
 
     @property
     def aid(self):
+        """Anon id (None for base users)."""
         return None
 
     @property
     def ispremium(self) -> bool:
+        """Whether the user is known to be premium."""
         return bool(self._ispremium)
 
     @ispremium.setter
     def ispremium(self, value):
+        """Sets premium status; None means unknown."""
         self._ispremium = bool(value) if value is not None else None
 
     def isowner(self, room) -> bool:
@@ -177,16 +189,20 @@ class User:
 
     @property
     def isanon(self):
+        """Whether the user is not registered."""
         return not isinstance(self, RegisteredUser)
 
     @property
     def istemp(self):
+        """Whether the user is a temporary (named anon) user."""
         return isinstance(self, TemporaryUser)
 
     def add_session(self, session):
+        """Tracks a session for this user."""
         self._sessions.add(session)
 
     def get_sessions(self, room=None):
+        """Returns this user's sessions, optionally filtered by room."""
         if room:
             return {s for s in self._sessions if s.room == room}
         else:
@@ -197,6 +213,7 @@ class RegisteredUser(User):
     """A registered Chatango user."""
 
     def __init__(self, name, **kwargs):
+        """Initializes a registered user with default resources."""
         super().__init__(**kwargs)
         self._name = name.lower()
         self._showname = name
@@ -206,22 +223,27 @@ class RegisteredUser(User):
 
     @property
     def name(self):
+        """Lowercase account name."""
         return self._name
 
     @property
     def sid(self):
+        """Session identifier (the account name)."""
         return self._name
 
     @property
     def styles(self) -> Styles:
+        """The user's message styles resource."""
         return self._styles
 
     @property
     def profile(self) -> UserProfile:
+        """The user's profile resource."""
         return self._profile
 
     @property
     def background(self) -> MessageBackground:
+        """The user's message background resource."""
         return self._background
 
     async def load_resources(self):
@@ -280,14 +302,17 @@ class RegisteredUser(User):
 
     @property
     def fullpic(self):
+        """URL of the user's full profile picture."""
         return PathProvider.get_resource_url(self.name, "full.jpg")
 
     @property
     def msgbg(self):
+        """URL of the user's message background image."""
         return PathProvider.get_resource_url(self.name, "msgbg.jpg")
 
     @property
     def thumb(self):
+        """URL of the user's profile thumbnail."""
         return PathProvider.get_resource_url(self.name, "thumb.jpg")
 
 
@@ -295,16 +320,19 @@ class AnonymousUser(User):
     """A generic anonymous Chatango user."""
 
     def __init__(self, aid, **kwargs):
+        """Initializes an anonymous user from a shortened cookie."""
         super().__init__(**kwargs)
         self._aid = aid
         self._display_id = str(kwargs.get("display_id", "3452"))
 
     @property
     def aid(self):
+        """Shortened cookie (anon id)."""
         return self._aid
 
     @property
     def name(self):
+        """Derived anonNNNN handle."""
         return get_anon_name(self._display_id, self.aid)
 
 
@@ -313,6 +341,7 @@ class TemporaryUser(AnonymousUser):
 
     @property
     def name(self) -> str:
+        """Lowercase temporary name."""
         return self.showname.lower()
 
 
@@ -332,6 +361,7 @@ class Session:
         correction_time: int = 0,
         badge: int = 0,
     ):
+        """Stores session identity and connection metadata."""
         self.user = user
         self.room = room
         self.session_id = session_id  # SSID
@@ -344,6 +374,7 @@ class Session:
         self.badge = badge
 
     def __repr__(self):
+        """Returns a readable session identifier."""
         name = self.user.showname if self.user else "Unknown"
         return f"<Session user:{name} ssid:{self.session_id} ip:{self.ip}>"
 
@@ -354,6 +385,7 @@ class UserManager:
     _users = weakref.WeakValueDictionary()
 
     def __init__(self):
+        """Disallowed; use UserManager.get_user() instead."""
         raise RuntimeError(
             "UserManager cannot be instantiated. Use UserManager.get_user() instead."
         )
@@ -412,6 +444,7 @@ class UserManager:
 
 class Friend:
     def __init__(self, user: User, client: Optional[Any] = None):
+        """Initializes friend state tied to a user and PM client."""
         self.user = user
         self.name = user.name
         self._client = client
@@ -421,37 +454,46 @@ class Friend:
         self._last_active = None
 
     def __repr__(self):
+        """Returns a readable friend identifier."""
         if self.is_friend():
             return f"<Friend {self.name}>"
         return f"<User: {self.name}>"
 
     def __str__(self):
+        """Returns the friend's name."""
         return self.name
 
     def __dir__(self):
+        """Limits dir() output to public attributes."""
         return public_attributes(self)
 
     @property
     def showname(self):
+        """Display name of the underlying user."""
         return self.user.showname
 
     @property
     def client(self):
+        """The PM client this friend belongs to."""
         return self._client
 
     @property
     def status(self):
+        """Last known presence status."""
         return self._status
 
     @property
     def last_active(self):
+        """Timestamp of last activity, if known."""
         return self._last_active
 
     @property
     def idle(self):
+        """Whether the friend is idle."""
         return self._idle
 
     def is_friend(self):
+        """Whether this user is on the friends list (None if unknown)."""
         if self.client and not self.user.isanon:
             if self.name in self.client.friends:
                 return True
@@ -474,21 +516,26 @@ class Friend:
 
     @property
     def is_online(self):
+        """Whether the friend is online."""
         return self.status == "online"
 
     @property
     def is_offline(self):
+        """Whether the friend is offline or only on the app."""
         return self.status in ["offline", "app"]
 
     @property
     def is_on_app(self):
+        """Whether the friend is online via the mobile app."""
         return self.status == "app"
 
     async def reply(self, message):
+        """Sends a private message to this friend."""
         if self.client:
             await self.client.send_message(self.name, message)
 
     def _check_status(self, _time=None, _idle=None, idle_time=None):  # TODO
+        """Updates idle state and last-active time from presence data."""
         if _time == None and idle_time == None:
             self._last_active = None
             return
